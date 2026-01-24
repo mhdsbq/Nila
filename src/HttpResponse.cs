@@ -19,14 +19,16 @@ public class HttpResponse
     /// <summary>
     /// Flushes status line and headers to response stream
     /// </summary>
-    internal async Task FlushAsync()
+    internal async Task FlushAsync(CancellationToken ct)
     {
         // https://datatracker.ietf.org/doc/html/rfc2616#section-6.1
         // Status-Line = HTTP-Version SP Status-Code SP Reason-Phrase CRLF
         var statusLine = $"{Protocol} {StatusCode} {ReasonPhrase}\r\n";
+
+        // TODO: Investigate write async not accepting cancellation token
         await _writer.WriteAsync(statusLine);
         await _writer.WriteAsync("\r\n");
-        await _writer.FlushAsync();
+        await _writer.FlushAsync(ct);
         
         _isFlushed = true;
     }

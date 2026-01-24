@@ -13,11 +13,11 @@ public class HttpRequest
         Reader = reader;        
     }
 
-    internal async Task ParseAsync()
+    internal async Task ParseAsync(CancellationToken ct)
     {
         // https://datatracker.ietf.org/doc/html/rfc2616#section-5.1
         // Request-Line   = Method SP Request-URI SP HTTP-Version CRLF
-        var requestLine = await Reader.ReadLineAsync();
+        var requestLine = await Reader.ReadLineAsync(ct);
         if (requestLine is null)
         {
             //TODO: Handle this case

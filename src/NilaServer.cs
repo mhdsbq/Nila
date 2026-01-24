@@ -8,11 +8,15 @@ public class NilaServer
 {
     private TcpListener? _listener;
     private Func<HttpContext, CancellationToken, Task>? _handler;
+    private CancellationTokenSource? _cts;
+
     public void Start(ServerOptions options)
     {
         _listener = new TcpListener(IPAddress.Loopback, options.Port);
         _listener.Start();
-        AcceptConnections();
+
+        _cts = new CancellationTokenSource();
+        _ = AcceptConnectionsAsync(_cts.Token);
     }
 
     public void ProcessAsync(Func<HttpContext, CancellationToken, Task> handler)
@@ -23,23 +27,24 @@ public class NilaServer
     public void Stop()
     {
         Debug.Assert(_listener is not null);
+        Debug.Assert(_cts is not null);
 
-        // TODO: Implement token cancellation
+        _cts.Cancel();
         _listener.Stop();
     }
 
-    private void AcceptConnections()
+    private async Task AcceptConnectionsAsync(CancellationToken ct)
     {
         Debug.Assert(_listener is not null);
 
-        while (true)
+        while (!ct.IsCancellationRequested)
         {
-            var tcpClient = _listener.AcceptTcpClient();
-            _ = HandleConnectionAsync(tcpClient);
+            var tcpClient = await _listener.AcceptTcpClientAsync(ct);
+            _ = HandleConnectionAsync(tcpClient, ct);
         }
     }
 
-    private async Task HandleConnectionAsync(TcpClient tcpClient)
+    private async Task HandleConnectionAsync(TcpClient tcpClient, CancellationToken ct)
     {
         Debug.Assert(_handler is not null);
 
@@ -48,15 +53,14 @@ public class NilaServer
         var writer = new StreamWriter(stream);
 
         var request = new HttpRequest(reader);
-        await request.ParseAsync();
+        await request.ParseAsync(ct);
 
         var response = new HttpResponse(writer, request.Protocol);
         var context = new HttpContext(request, response);
 
-        // TODO: Create cancellation token source 
-        await _handler.Invoke(context, CancellationToken.None);
+        await _handler.Invoke(context, ct);
 
-        await response.FlushAsync();
+        await response.FlushAsync(ct);
         tcpClient.Close();
     }
 }
