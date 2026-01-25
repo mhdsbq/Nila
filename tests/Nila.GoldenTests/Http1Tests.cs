@@ -10,12 +10,23 @@ public class GoldenTests : IDisposable
     public GoldenTests()
     {
         _server = new NilaServer();
-        _server.ProcessAsync(async(ctx, ct) =>
+        _server.ProcessAsync(async (ctx, ct) =>
         {
-            if(ctx.Request.Method == "GET" && ctx.Request.Path == "/")
+            var method = ctx.Request.Method;
+            var path = ctx.Request.Path;
+            if (method == "GET" && path == "/")
             {
                 ctx.Response.StatusCode = 200;
                 ctx.Response.ReasonPhrase = "OK";
+            }
+            else if (method == "GET" && path == "/content-length")
+            {
+                ctx.Response.StatusCode = 200;
+                ctx.Response.ReasonPhrase = "OK";
+                ctx.Response.Headers["Content-Length"] = "10";
+
+                // A 20 character response. Server should only send 10 chars. 'char' -> 1byte
+                await ctx.Response.WriteBodyAsync("0123456789abcdefghij", ct);
             }
             else
             {
@@ -47,6 +58,104 @@ public class GoldenTests : IDisposable
             """;
 
         AssertEqual(expected, response);
+    }
+
+    [Fact]
+    public async Task TestGetContentLength_LimitBodyToContentLength()
+    {
+        var request = """
+            GET /content-length HTTP/1.1
+            Host: localhost:2603
+            Connection: close
+            """;
+
+        var response = await SendTcpRequest(request);
+
+        var expected = """
+            HTTP/1.1 200 OK
+            Content-Length: 10
+            
+            0123456789
+            """;
+
+        AssertEqual(expected, response);
+    }
+
+    [Fact]
+    public async Task TestGetCustomHeader_ReturnsCustomHeader()
+    {
+        var headerValue = Guid.NewGuid().ToString();
+
+        var request = $"""
+            GET /custom-header HTTP/1.1
+            Host: localhost:2603
+            Custom-Header: {headerValue}
+            Connection: close
+        """;
+
+        var response = await SendTcpRequest(request);
+
+        var expected = $"""
+            HTTP/1.1 200 OK
+            Content-Type: text/plane
+            Content-Length: {headerValue.Length}
+
+            {headerValue}
+        """;
+
+        AssertEqual(expected, response);
+    }
+
+    [Fact]
+    public async Task TestGetEchoBody_ReturnsRequestBody()
+    {
+        var body = Guid.NewGuid().ToString();
+
+        var request = $"""
+            GET /echo-body HTTP/1.1
+            Host: localhost:2603
+            Content-Type: text/plane
+            Content-Length: {body.Length}
+            Connection: close
+
+            {body} 
+        """;
+
+        var response = await SendTcpRequest(request);
+
+        var expected = $"""
+            HTTP/1.1 200 OK
+            Content-Type: text/plane
+            Content-Length: {body.Length}
+
+            {body}
+        """;
+
+        AssertEqual(expected, response);
+    }
+
+    [Fact]
+    public async Task TestConcurrentRequests_AllReturns200()
+    {
+        var concurrency = 50;
+
+        var request = """
+            GET / HTTP/1.1
+            Host: localhost:2603
+            Connection: close
+        """;
+
+        var expected = """
+            HTTP/1.1 200 OK 
+        """;
+
+        var requests = Enumerable.Range(0, concurrency)
+            .Select(_ => Task.Run(() => SendTcpRequest(request)));
+
+        var results = await Task.WhenAll(requests);
+
+        foreach (var result in results)
+            AssertEqual(expected, result);
     }
 
     [Fact]
