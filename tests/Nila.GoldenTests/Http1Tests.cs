@@ -28,6 +28,17 @@ public class GoldenTests : IDisposable
                 // A 20 character response. Server should only send 10 chars. 'char' -> 1byte
                 await ctx.Response.WriteBodyAsync("0123456789abcdefghij", ct);
             }
+            else if (method == "GET" && path == "/custom-header")
+            {
+                ctx.Response.StatusCode = 200;
+                ctx.Response.ReasonPhrase = "OK";
+
+                var customHeaderValue = ctx.Request.Headers.GetValueOrDefault("Custom-Header", string.Empty);
+
+                ctx.Response.Headers.Add("Content-Type", "text/plane");
+                ctx.Response.Headers.Add("Content-Length", customHeaderValue.Length.ToString());
+                await ctx.Response.WriteBodyAsync(customHeaderValue, ct);
+            }
             else
             {
                 ctx.Response.StatusCode = 404;
@@ -91,7 +102,9 @@ public class GoldenTests : IDisposable
             Host: localhost:2603
             Custom-Header: {headerValue}
             Connection: close
-        """;
+
+            
+            """;
 
         var response = await SendTcpRequest(request);
 
@@ -101,7 +114,7 @@ public class GoldenTests : IDisposable
             Content-Length: {headerValue.Length}
 
             {headerValue}
-        """;
+            """;
 
         AssertEqual(expected, response);
     }
@@ -119,7 +132,7 @@ public class GoldenTests : IDisposable
             Connection: close
 
             {body} 
-        """;
+            """;
 
         var response = await SendTcpRequest(request);
 
@@ -129,7 +142,7 @@ public class GoldenTests : IDisposable
             Content-Length: {body.Length}
 
             {body}
-        """;
+            """;
 
         AssertEqual(expected, response);
     }
@@ -143,11 +156,11 @@ public class GoldenTests : IDisposable
             GET / HTTP/1.1
             Host: localhost:2603
             Connection: close
-        """;
+            """;
 
         var expected = """
             HTTP/1.1 200 OK 
-        """;
+            """;
 
         var requests = Enumerable.Range(0, concurrency)
             .Select(_ => Task.Run(() => SendTcpRequest(request)));
@@ -165,6 +178,7 @@ public class GoldenTests : IDisposable
             GET /notfound HTTP/1.1
             Host: localhost:2603
             Connection: close
+
             """;
 
         var response = await SendTcpRequest(request);
@@ -182,6 +196,8 @@ public class GoldenTests : IDisposable
 
     private async Task<string> SendTcpRequest(string request)
     {
+        // Normalize request.
+        request = request.Replace("\n", "\r\n").Replace(@"\r\n", "\r\n");
         using var client = new TcpClient("localhost", 2603);
         using var stream = client.GetStream();
 
